@@ -20,62 +20,111 @@ if (!require('xlsx')) install.packages('xlsx'); library(xlsx)
 
 #### Others
 if (!require('pdftools')) install.packages('pdftools'); library(pdftools)
-if (!require('tabulizer')) install.packages('tabulizer'); library(tabulizer)
+if (!require('tm')) install.packages('tm'); library(tm)
 
-install.packages("pak")
-pak::pkg_install('ropensci/tabulizer')
+install.packages("rJava")
+library(rJava) # load and attach 'rJava' now
+install.packages("devtools")
+devtools::install_github("ropensci/tabulizer")
+
+library(tabulizer)
+
+library(pdftools)
 
 ##%##########################################################################%##
 
-tab.text <- extract_text("ipcc_pdf/ipcc_pdf_wg1/IPCC_AR6_WGI_Chapter01.pdf")
-tab.text2 <- strsplit(tab.text,"\n")``
+download.file("https://www.ipcc.ch/report/ar6/wg1/downloads/report/IPCC_AR6_WGI_Chapter01.pdf",
+              "WGI_Chapter01",
+              mode="wb")
 
-(head(tab.text2))
+text <- pdf_text("WGI_Chapter01")
 
-get_text <- function(url) {
-  # Get nunber of pages of PDF
-  p <- get_n_pages(url)
-  # Initialize a list
-  L <- vector(mode = "list", length = 1)
-  # Extract text from pdf
-  txt <- tabulizer::extract_text(url, pages = seq(1,p))
-  # Output: character vector containing all pages
-  return(txt)
-}
+p.23 <- (text[23])
 
-tab.text <- get_text(url = "https://www.ipcc.ch/report/ar6/wg1/downloads/report/IPCC_AR6_WGI_Chapter01.pdf")
-tab.text2 <- strsplit(tab.text,"\n")
+text.23 <- strsplit(text, "\n")
 
-head(tab.text2)
+text.23.df <- as.data.frame(text.23)
 
-# 1: Uploading data ############################################################
+##%##########################################################################%##
 
-#### uploading text using pdf tools
-text <- pdf_text("ipcc_pdf/ipcc_pdf_wg1/IPCC_AR6_WGI_Chapter01.pdf")
 
-#### character vector of text with spaces for spaces, \n linebreaks
-str(text) #### chr [1:142] "Chapters\n" "" ...
 
-#### using strsplit to separate lines
-text2 <- strsplit(text,"\n")
 
-pages.n <- length(text2) #### List of 142
+read <- readPDF(control = list(text = "-layout"))
+document <- Corpus(URISource("/Users/rolsmith/Library/CloudStorage/OneDrive-UniversityofEastAnglia/IPCC_uncertainty/IPCC_uncertainty_data/IPPC_uncertainty/ipcc_pdf/ipcc_pdf_wg1/IPCC_AR6_WGI_Chapter01.pdf"), readerControl = list(reader = read))
+doc <- content(document[[1]])
 
-#### loop here 
+text <- doc
 
-for(i in 1:length(pages.n)) {
+str(text)
+
+text[[23]]
+
+text.df <- as.data.frame(text[[23]])
+
+view(text.df)
+
+colnames(text.df) <- "origin.line"
+
+text.df.split <- text.df %>%
+  separate(origin.line, into = c("l", "r"), sep = "\n")
+
+view(text.df.split)
+
+##%##########################################################################%##
+
+#### holding df
+chapter.df <- as.data.frame(matrix(ncol=5))
+colnames(chapter.df) <- c("chapter.n",
+                          "page.n",
+                          "line.n",
+                          "origin.line",
+                          "uncertainty")
+
+#### chapter url
+url <- "https://www.ipcc.ch/report/ar6/wg1/downloads/report/IPCC_AR6_WGI_Chapter01.pdf"
+
+#### number of pages and page sequence
+(p <- get_n_pages(url))
+pseq <- 1:p
+
+#### extracting function
+for (i in 1:length(pseq)) {
   
-  #### create a dataframe for that page
-  page.df <- as.data.frame(text2[[6]])
+  txt <- tabulizer::extract_text(url, pages = pseq[i])
   
-  #### adding 'origin.line' column name
+  #### split by line breaks
+  page.text <- strsplit(txt,"\n")
+  
+  #### transform to df
+  page.df<- as.data.frame(page.text)
+  
+  #### add first column name
   colnames(page.df) <- "origin.line"
   
-  view(page.df)
+  #### adding columns for line, page and uncertainty (logical)
+  page.df <- page.df %>%
+    mutate(across(where(is.character), tolower)) %>%
+    mutate(page.n = origin.line[1],
+           chapter.n = origin.line[3],
+           uncertainty = ifelse(grepl("Uncertainty", origin.line), TRUE, FALSE),
+           line.n = row_number()) %>%
+    dplyr::select(chapter.n,
+                  page.n,
+                  line.n,
+                  origin.line,
+                  uncertainty)
+  
+  #### adding page.df to chapter.df
+  chapter.df <- rbind(chapter.df,
+                      page.df)
+  
+  print(paste("page",
+              pseq[i],
+              "of chapter",
+              page.df$origin.line[3],
+              "complete",
+              sep = " "))  
+}
 
-p5.df <- p5.df %>%
-  mutate(uncertainty = ifelse(grepl("Uncertainty", origin.text), TRUE,
-                              ifelse(grepl("uncertainty", origin.text), TRUE, FALSE)))
-
-view(p5.df)
-         
+view(chapter.df)
